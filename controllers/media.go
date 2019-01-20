@@ -93,8 +93,6 @@ func (c *MediaController) onStatus(message *api.CastMessage) {
 	}
 
 	for _, status := range response.Status {
-		fmt.Println("!!!!", status)
-
 		c.sendEvent(*status)
 	}
 }
