@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 
 	"golang.org/x/net/context"
 
@@ -16,6 +17,7 @@ import (
 )
 
 type Connection struct {
+	mutex    sync.RWMutex
 	conn     *tls.Conn
 	channels []*Channel
 }
@@ -29,8 +31,24 @@ func NewConnection() *Connection {
 
 func (c *Connection) NewChannel(sourceId, destinationId, namespace string) *Channel {
 	channel := NewChannel(c, sourceId, destinationId, namespace)
+
+	c.mutex.Lock()
 	c.channels = append(c.channels, channel)
+	c.mutex.Unlock()
+
 	return channel
+}
+
+func (c *Connection) RemoveChannel(channel *Channel) {
+	c.mutex.Lock()
+
+	for i := len(c.channels) - 1; i >= 0; i-- {
+		if c.channels[i] == channel {
+			c.channels = append(c.channels[:i], c.channels[i+1:]...)
+		}
+	}
+
+	c.mutex.Unlock()
 }
 
 func (c *Connection) Connect(ctx context.Context, host net.IP, port int) error {
@@ -52,9 +70,15 @@ func (c *Connection) Connect(ctx context.Context, host net.IP, port int) error {
 }
 
 func (c *Connection) ReceiveLoop() {
+	defer func() {
+		fmt.Println("done")
+	}()
+
+	conn := c.conn
+
 	for {
 		var length uint32
-		err := binary.Read(c.conn, binary.BigEndian, &length)
+		err := binary.Read(conn, binary.BigEndian, &length)
 		if err != nil {
 			log.Printf("Failed to read packet length: %s", err)
 			break
@@ -94,7 +118,12 @@ func (c *Connection) ReceiveLoop() {
 			break
 		}
 
-		for _, channel := range c.channels {
+		c.mutex.RLock()
+		channelsCopy := make([]*Channel, len(c.channels))
+		copy(channelsCopy, c.channels)
+		c.mutex.RUnlock()
+
+		for _, channel := range channelsCopy {
 			channel.Message(message, &headers)
 		}
 	}

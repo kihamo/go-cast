@@ -1,6 +1,7 @@
 package net
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"golang.org/x/net/context"
@@ -16,6 +17,7 @@ type Channel struct {
 	namespace     string
 	_             int32
 	requestId     int64
+	mutex         sync.Mutex
 	inFlight      map[int]chan *api.CastMessage
 	listeners     []channelListener
 }
@@ -46,20 +48,27 @@ func (c *Channel) Message(message *api.CastMessage, headers *PayloadHeaders) {
 		return
 	}
 
-	if headers.Type == "" {
+	if headers.Type == "" && headers.ResponseType == "" {
 		log.Errorf("Warning: No message type. Don't know what to do. headers: %v message:%v", headers, message)
 		return
 	}
 
 	if headers.RequestId != nil && *headers.RequestId != 0 {
-		if listener, ok := c.inFlight[*headers.RequestId]; ok {
+		c.mutex.Lock()
+		listener, ok := c.inFlight[*headers.RequestId]
+		c.mutex.Unlock()
+
+		if ok {
 			listener <- message
+
+			c.mutex.Lock()
 			delete(c.inFlight, *headers.RequestId)
+			c.mutex.Unlock()
 		}
 	}
 
 	for _, listener := range c.listeners {
-		if listener.responseType == headers.Type {
+		if listener.responseType == headers.Type || (headers.ResponseType != "" && listener.responseType == headers.ResponseType) {
 			listener.callback(message)
 		}
 	}
@@ -78,11 +87,17 @@ func (c *Channel) Request(ctx context.Context, payload Payload) (*api.CastMessag
 
 	payload.setRequestId(requestId)
 	response := make(chan *api.CastMessage)
+
+	c.mutex.Lock()
 	c.inFlight[requestId] = response
+	c.mutex.Unlock()
 
 	err := c.Send(payload)
 	if err != nil {
+		c.mutex.Lock()
 		delete(c.inFlight, requestId)
+		c.mutex.Unlock()
+
 		return nil, err
 	}
 
@@ -90,7 +105,10 @@ func (c *Channel) Request(ctx context.Context, payload Payload) (*api.CastMessag
 	case reply := <-response:
 		return reply, nil
 	case <-ctx.Done():
+		c.mutex.Lock()
 		delete(c.inFlight, requestId)
+		c.mutex.Unlock()
+
 		return nil, ctx.Err()
 	}
 }

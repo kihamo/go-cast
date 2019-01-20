@@ -1,8 +1,9 @@
 package net
 
 type PayloadHeaders struct {
-	Type      string `json:"type"`
-	RequestId *int   `json:"requestId,omitempty"`
+	Type         string `json:"type"`
+	ResponseType string `json:"responseType,omitempty"`
+	RequestId    *int   `json:"requestId,omitempty"`
 }
 
 func (h *PayloadHeaders) setRequestId(id int) {

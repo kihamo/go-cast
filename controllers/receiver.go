@@ -21,6 +21,8 @@ type ReceiverController struct {
 }
 
 var getStatus = net.PayloadHeaders{Type: "GET_STATUS"}
+var getAppAvailability = net.PayloadHeaders{Type: "GET_APP_AVAILABILITY"}
+var setVolume = net.PayloadHeaders{Type: "SET_VOLUME"}
 var commandLaunch = net.PayloadHeaders{Type: "LAUNCH"}
 var commandStop = net.PayloadHeaders{Type: "STOP"}
 
@@ -98,6 +100,16 @@ type ReceiverStatus struct {
 	Volume       *Volume               `json:"volume,omitempty"`
 }
 
+type AppAvailabilityRequest struct {
+	net.PayloadHeaders
+	AppId []*string `json:"appId"`
+}
+
+type AppAvailabilityResponse struct {
+	net.PayloadHeaders
+	Availability map[string]string `json:"availability"`
+}
+
 type LaunchRequest struct {
 	net.PayloadHeaders
 	AppId string `json:"appId"`
@@ -161,9 +173,33 @@ func (c *ReceiverController) GetStatus(ctx context.Context) (*ReceiverStatus, er
 	return response.Status, nil
 }
 
+func (c *ReceiverController) GetAppAvailability(ctx context.Context, appId string) (bool, error) {
+	message, err := c.channel.Request(ctx, &AppAvailabilityRequest{
+		PayloadHeaders: getAppAvailability,
+		AppId:          []*string{&appId},
+	})
+
+	if err != nil {
+		return false, fmt.Errorf("Failed to get app availability: %s", err)
+	}
+
+	response := &AppAvailabilityResponse{}
+	err = json.Unmarshal([]byte(*message.PayloadUtf8), response)
+	if err != nil {
+		return false, fmt.Errorf("Failed to unmarshal app availability message: %s - %s", err, *message.PayloadUtf8)
+	}
+
+	result, ok := response.Availability[appId]
+	if !ok {
+		return false, fmt.Errorf("Failed to get app availability: app %s not exists in response", appId)
+	}
+
+	return result == "APP_AVAILABLE", nil
+}
+
 func (c *ReceiverController) SetVolume(ctx context.Context, volume *Volume) (*api.CastMessage, error) {
 	return c.channel.Request(ctx, &ReceiverStatus{
-		PayloadHeaders: net.PayloadHeaders{Type: "SET_VOLUME"},
+		PayloadHeaders: setVolume,
 		Volume:         volume,
 	})
 }

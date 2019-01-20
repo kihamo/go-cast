@@ -16,7 +16,9 @@ import (
 
 type MediaController struct {
 	interval       time.Duration
+	conn           *net.Connection
 	channel        *net.Channel
+	connection     *ConnectionController
 	eventsCh       chan events.Event
 	DestinationID  string
 	MediaSessionID int
@@ -59,7 +61,9 @@ type MediaStatusMedia struct {
 
 func NewMediaController(conn *net.Connection, eventsCh chan events.Event, sourceId, destinationID string) *MediaController {
 	controller := &MediaController{
+		conn:          conn,
 		channel:       conn.NewChannel(sourceId, destinationID, NamespaceMedia),
+		connection:    NewConnectionController(conn, eventsCh, sourceId, destinationID),
 		eventsCh:      eventsCh,
 		DestinationID: destinationID,
 	}
@@ -89,6 +93,8 @@ func (c *MediaController) onStatus(message *api.CastMessage) {
 	}
 
 	for _, status := range response.Status {
+		fmt.Println("!!!!", status)
+
 		c.sendEvent(*status)
 	}
 }
@@ -129,6 +135,10 @@ type MediaStatus struct {
 }
 
 func (c *MediaController) Start(ctx context.Context) error {
+	if err := c.connection.Start(ctx); err != nil {
+		return err
+	}
+
 	_, err := c.GetStatus(ctx)
 	return err
 }
@@ -192,4 +202,10 @@ func (c *MediaController) LoadMedia(ctx context.Context, media MediaItem, curren
 	}
 
 	return message, nil
+}
+
+func (c *MediaController) Close() error {
+	c.conn.RemoveChannel(c.channel)
+
+	return c.connection.Close()
 }
