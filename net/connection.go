@@ -70,10 +70,6 @@ func (c *Connection) Connect(ctx context.Context, host net.IP, port int) error {
 }
 
 func (c *Connection) ReceiveLoop() {
-	defer func() {
-		fmt.Println("done")
-	}()
-
 	conn := c.conn
 
 	for {
